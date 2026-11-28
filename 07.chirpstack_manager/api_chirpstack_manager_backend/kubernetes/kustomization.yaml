@@ -16,7 +16,7 @@ images:
     newName: gru.ocir.io/griszz3l82u1/api-chirpstack-manager-backend_platform_linux-arm64
     # Atualizado pelo pipeline a cada build (tag imutavel = versao calculada).
     # "latest" so ate o primeiro build; o pipeline troca pela versao (0.1, 0.2...).
-    newTag: "1.17"
+    newTag: "1.18"
 
 patches:
   - target:
