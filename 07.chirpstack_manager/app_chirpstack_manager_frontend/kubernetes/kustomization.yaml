@@ -11,7 +11,7 @@ images:
     newName: gru.ocir.io/griszz3l82u1/app-chirpstack-manager-frontend_platform_linux-arm64
     # Atualizado pelo pipeline a cada build (tag imutável = versão calculada).
     # "latest" só até o primeiro build; o pipeline troca pela versão (0.1, 0.2...).
-    newTag: "1.13"
+    newTag: "1.14"
 
 patches:
   - target:
