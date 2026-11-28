@@ -1,0 +1,386 @@
+# Conteúdo para pipeline mobile do GitHub Actions na raíz do projeto.
+## .github/workflows/mobile.yml
+#
+# Repositório: AdailSilva/k8s-arm-oci-always-free_chirpstack.
+#   app_chirpstack_manager_mobile  → 07.chirpstack_manager/app_chirpstack_manager_mobile/**
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# POR QUE UM WORKFLOW SEPARADO DO main.yml
+#
+# O build Flutter/Android roda no NOTEBOOK (x86_64), nao no cluster ARM64.
+# Se o job mobile estivesse no main.yml e o notebook estivesse desligado, a
+# execucao inteira ficaria ate 24h em "Waiting for a runner" e seguraria os
+# deploys de backend/frontend. Separado, o mobile tem fila propria.
+#
+# Os jobs mobile nao tocam no cluster: nao usam kubectl, OCIR nem GitOps.
+# Geram APK/AAB assinados e publicam no GitHub Releases deste repositorio.
+#
+# RUNNERS
+#   detect -> worker-0 [self-hosted, Linux, ARM64]     (sempre ligado, gratis)
+#   mobile -> notebook [self-hosted, Linux, X64, flutter]
+#   O runner do notebook precisa estar registrado TAMBEM neste repositorio
+#   (02.k8s-on-arm-oci-always-free_chirpstack), com os rotulos X64 e flutter --
+#   ver README.md, secao "Pipeline mobile (Flutter)".
+#
+# PASTA SEM APP -- o detect so libera o build quando a pasta tem pubspec.yaml;
+# sem ele o job fica "skipped" (inclusive em workflow_dispatch e com
+# .force-deploy). O app do Manager é Flutter (Android e iOS).
+#
+# VERSIONAMENTO -- mesmo padrao do main.yml (tag com prefixo por componente):
+#   app-chirpstack-manager-mobile-X.Y
+#   build-name   = X.Y (versao exibida no app)
+#   build-number = minutos desde 01/01/2025 UTC (versionCode do Android, sempre crescente,
+#                  mesmo se o repositório for recriado)
+# A tag e criada pelo proprio Release (softprops), apontando para o commit
+# do build.
+#
+# MEMORIA DO NOTEBOOK -- o Gradle do CI usa GRADLE_USER_HOME proprio
+# (~/.gradle-ci) com -Xmx4g, sem daemon residente e Kotlin in-process; ao fim
+# de cada job (sempre) os processos Gradle/Kotlin do CI sao encerrados.
+#
+# NOMES DOS ARTEFATOS NO RELEASE -- <tag>-b<build>-<abi>.apk e <tag>-b<build>.aab
+#   ex.: app-chirpstack-manager-mobile-0.1-b1-arm64-v8a.apk
+#        app-chirpstack-manager-mobile-0.1-b1.aab
+#
+# Novos apps mobile deste repositorio: acrescente o path em on.push.paths,
+# o filtro/saida no detect e copie um dos jobs app_chirpstack_*_mobile.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: CI/CD Mobile (Flutter/Android)
+
+# Titulo de cada execucao na lista de Actions: mostra o que disparou.
+run-name: >-
+  Mobile · ${{ github.event_name == 'workflow_dispatch'
+    && format('manual ({0})', inputs.target)
+    || github.event.head_commit.message }}
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '07.chirpstack_manager/app_chirpstack_manager_mobile/**'
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Tipo de versão: minor (padrão) ou major'
+        required: false
+        default: 'minor'
+      target:
+        description: 'O que buildar: app-chirpstack-manager-mobile ou todos'
+        required: false
+        default: 'todos'
+
+# O notebook executa um job por vez; esta fila evita que duas execucoes do
+# workflow disputem a criacao da mesma tag de versao.
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB: DETECT – descobre quais apps mobile mudaram e expoe outputs para os
+# jobs seguintes. Em workflow_dispatch usa o input `target`.
+# ─────────────────────────────────────────────────────────────────────────────
+  detect:
+    name: Detectar alterações (mobile)
+    runs-on: [self-hosted, Linux, ARM64]
+    timeout-minutes: 10
+    outputs:
+      app_chirpstack_manager_mobile:  ${{ steps.decisao.outputs.app_chirpstack_manager_mobile }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      - name: Filtrar paths alterados
+        uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            app_chirpstack_manager_mobile:
+              - '07.chirpstack_manager/app_chirpstack_manager_mobile/**'
+
+      # Decisao final: push -> paths-filter; workflow_dispatch -> input `target`.
+      # Depois, so libera o app que ja e um projeto Flutter (tem pubspec.yaml).
+      - name: Decidir apps a buildar
+        id: decisao
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TARGET="${{ github.event.inputs.target }}"
+            for APP in app-chirpstack-manager-mobile; do
+              if [ "$TARGET" == "$APP" ] || [ "$TARGET" == "todos" ]; then V=true; else V=false; fi
+              eval "${APP//-/_}=$V"
+            done
+          else
+            app_chirpstack_manager_mobile="${{ steps.filter.outputs.app_chirpstack_manager_mobile }}"
+          fi
+
+          SEM_PUBSPEC=""
+          if [ "$app_chirpstack_manager_mobile" == "true" ] && [ ! -f "07.chirpstack_manager/app_chirpstack_manager_mobile/pubspec.yaml" ]; then
+            app_chirpstack_manager_mobile=false; SEM_PUBSPEC="$SEM_PUBSPEC Manager"
+          fi
+
+          echo "app_chirpstack_manager_mobile=$app_chirpstack_manager_mobile"   >> $GITHUB_OUTPUT
+
+          # Resumo na pagina da execucao
+          {
+            echo "### Apps mobile nesta execução"
+            echo ""
+            echo "| App | Build |"
+            echo "|---|---|"
+            for PAR in "Manager:$app_chirpstack_manager_mobile"; do
+              NOME="${PAR%%:*}"
+              if [ "${PAR#*:}" == "true" ]; then echo "| $NOME | na fila do notebook |"
+              elif [[ " $SEM_PUBSPEC " == *" $NOME "* ]]; then echo "| $NOME | app Flutter ainda não criado (sem pubspec.yaml) |"
+              else echo "| $NOME | sem alterações |"; fi
+            done
+          } >> $GITHUB_STEP_SUMMARY
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB: CHIRPSTACK MANAGER – MOBILE (Flutter/Android) – no notebook
+# Disparado quando o job detect sinaliza app_chirpstack_manager_mobile=true
+# ─────────────────────────────────────────────────────────────────────────────
+  app_chirpstack_manager_mobile:
+    name: ChirpStack - Manager – Mobile (Flutter/Android)
+    runs-on: [self-hosted, Linux, X64, flutter]
+    timeout-minutes: 60
+    needs: detect
+    if: needs.detect.outputs.app_chirpstack_manager_mobile == 'true'
+    defaults:
+      run:
+        working-directory: 07.chirpstack_manager/app_chirpstack_manager_mobile
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT }}
+
+      # ─── VERSIONAMENTO ──────────────────────────────────────────────────────
+      - name: Calcular próxima versão (app-chirpstack-manager-mobile)
+        id: version
+        run: |
+          PREFIX="app-chirpstack-manager-mobile"
+          LATEST=$(git tag --list "${PREFIX}-[0-9]*.[0-9]*" | sort -V | tail -1)
+
+          if [ -z "$LATEST" ]; then
+            LATEST="${PREFIX}-0.0"
+          fi
+
+          NUMS=${LATEST#${PREFIX}-}
+          MAJOR=$(echo "$NUMS" | cut -d. -f1)
+          MINOR=$(echo "$NUMS" | cut -d. -f2)
+
+          if [ "${{ github.event.inputs.version_type }}" == "major" ]; then
+            NEW_VERSION="$((MAJOR + 1)).0"
+          else
+            NEW_VERSION="$MAJOR.$((MINOR + 1))"
+          fi
+
+          FULL_TAG="${PREFIX}-${NEW_VERSION}"
+          echo "Nova versão: $FULL_TAG (build ${{ github.run_number }})"
+          echo "VERSION=$NEW_VERSION"            >> $GITHUB_OUTPUT
+          echo "FULL_TAG=$FULL_TAG"              >> $GITHUB_OUTPUT
+          # versionCode do Android: minutos desde 01/01/2025 (UTC). Sempre crescente e
+          # independente do repositorio -- o github.run_number voltava a 1 quando o
+          # repositorio era recriado e o Android recusava atualizar o app instalado.
+          echo "BUILD=$(( ($(date -u +%s) - 1735689600) / 60 ))"  >> $GITHUB_OUTPUT
+      # ────────────────────────────────────────────────────────────────────────
+
+      # storeFile e relativo a android/app/ (resolvido por file() no modulo app).
+      - name: Keystore de assinatura
+        env:
+          KEYSTORE_BASE64:   ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD:      ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS:         ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "storeFile=upload-keystore.jks"
+          } > android/key.properties
+
+      # Gradle do CI com memoria limitada e sem daemon residente. O gradle.properties
+      # do app pede -Xmx8G + 4G de metaspace (padrao do Flutter); no notebook, o
+      # daemon do assembleRelease ainda vivo + um daemon novo no bundleRelease + o
+      # daemon do Kotlin passavam da RAM e o systemd-oomd encerrava o servico do
+      # runner ("Gradle build daemon disappeared" + "The operation was canceled").
+      # O gradle.properties do GRADLE_USER_HOME tem precedencia sobre o do projeto,
+      # e o diretorio proprio do CI (~/.gradle-ci) nao mexe no Gradle do Android Studio.
+      - name: Gradle do CI (memória limitada)
+        run: |
+          set -euo pipefail
+          GH="$HOME/.gradle-ci"
+          mkdir -p "$GH"
+          cat > "$GH/gradle.properties" <<'PROPS'
+          org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:ReservedCodeCacheSize=256m -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+          org.gradle.daemon=false
+          org.gradle.workers.max=4
+          kotlin.compiler.execution.strategy=in-process
+          kotlin.daemon.jvmargs=-Xmx1g
+          PROPS
+          sed -i 's/^ *//' "$GH/gradle.properties"
+          echo "GRADLE_USER_HOME=$GH" >> "$GITHUB_ENV"
+          cat "$GH/gradle.properties"
+
+      - name: Dependências, análise e testes
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Build release (APK por ABI + AAB)
+        run: |
+          set -euo pipefail
+          # Um build Gradle por vez no notebook: os runners mobile dos 5 repositorios
+          # dividem o ~/.gradle-ci, e o passo "Encerrar Gradle do CI" de um job mataria
+          # o build de outro. O lock vale ate o fim deste step.
+          exec 9>"$HOME/.gradle-ci/.build.lock"
+          echo ">> Aguardando a vez no Gradle do notebook (lock ~/.gradle-ci/.build.lock)..."
+          flock -w 5400 9 || { echo "::error::Outro build mobile segurou o lock por mais de 90 min."; exit 1; }
+          flutter build apk 9>&- --release --split-per-abi \
+            --build-name=${{ steps.version.outputs.VERSION }} \
+            --build-number=${{ steps.version.outputs.BUILD }} \
+            --dart-define=AMBIENTE=production
+          flutter build appbundle 9>&- --release \
+            --build-name=${{ steps.version.outputs.VERSION }} \
+            --build-number=${{ steps.version.outputs.BUILD }} \
+            --dart-define=AMBIENTE=production
+          ls -lh build/app/outputs/flutter-apk/ build/app/outputs/bundle/release/
+
+      # Os nomes padrao do Flutter (app-<abi>-release.apk / app-release.aab) sao
+      # iguais nos tres apps e em todas as versoes. Copia para build/release-dist/
+      # com nome unico: <tag>-b<build>-<abi>.apk e <tag>-b<build>.aab.
+      - name: Renomear artefatos
+        id: artefatos
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.version.outputs.FULL_TAG }}-b${{ steps.version.outputs.BUILD }}"
+          rm -rf build/release-dist && mkdir -p build/release-dist
+          for APK in build/app/outputs/flutter-apk/app-*-release.apk; do
+            ABI=$(basename "$APK" -release.apk)
+            ABI=${ABI#app-}
+            cp "$APK" "build/release-dist/${BASE}-${ABI}.apk"
+          done
+          cp build/app/outputs/bundle/release/app-release.aab "build/release-dist/${BASE}.aab"
+          echo "APK_CELULAR=${BASE}-arm64-v8a.apk" >> $GITHUB_OUTPUT
+          ls -lh build/release-dist/
+
+      # ─── RELEASE ────────────────────────────────────────────────────────────
+      # O softprops so cria/atualiza o Release (e a tag), SEM arquivos: ele
+      # envia todos os assets em paralelo e o servidor de upload do GitHub
+      # responde de forma intermitente "Error creating policy" / "Error
+      # updating policy" com varios APK/AAB grandes ao mesmo tempo. Os assets
+      # sobem no passo seguinte, um por vez, com retentativas.
+      - name: Publicar no GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GH_PAT }}
+          tag_name: ${{ steps.version.outputs.FULL_TAG }}
+          target_commitish: ${{ github.sha }}
+          name: ChirpStack - Manager Mobile ${{ steps.version.outputs.VERSION }} (build ${{ steps.version.outputs.BUILD }})
+
+      # Upload sequencial com ate 5 tentativas por arquivo. Antes de cada
+      # tentativa remove asset de mesmo nome (versao anterior ou upload
+      # parcial que fica no Release e bloqueia o reenvio com 422).
+      - name: Enviar arquivos ao GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          UPLOAD="https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"
+          AUTH=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          RESP="${RUNNER_TEMP}/release-upload-resp.json"
+
+          shopt -s nullglob
+          ARQUIVOS=(build/release-dist/*)
+          if [ ${#ARQUIVOS[@]} -eq 0 ]; then
+            echo "::error::Nenhum arquivo em build/release-dist"
+            exit 1
+          fi
+
+          remover_asset() {
+            local IDS
+            IDS=$(curl -fsS --retry 3 "${AUTH[@]}" "${API}/releases/${RELEASE_ID}/assets?per_page=100" \
+              | python3 -c 'import json,sys; n=sys.argv[1]; print(" ".join(str(a["id"]) for a in json.load(sys.stdin) if a["name"]==n))' "$1")
+            for ID in $IDS; do
+              curl -fsS --retry 3 -X DELETE "${AUTH[@]}" "${API}/releases/assets/${ID}" >/dev/null
+              echo "   removido asset anterior/parcial $1 (id ${ID})"
+            done
+          }
+
+          for ARQ in "${ARQUIVOS[@]}"; do
+            NOME=$(basename "$ARQ")
+            OK=0
+            for TENTATIVA in 1 2 3 4 5; do
+              remover_asset "$NOME"
+              echo "⬆️ ${NOME} ($(du -h "$ARQ" | cut -f1)) - tentativa ${TENTATIVA}/5"
+              HTTP=$(curl -sS -o "$RESP" -w '%{http_code}' -X POST "${AUTH[@]}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$ARQ" "${UPLOAD}?name=${NOME}") || HTTP=000
+              if [ "$HTTP" = "201" ]; then
+                OK=1
+                echo "✅ ${NOME}"
+                break
+              fi
+              echo "::warning::HTTP ${HTTP} ao enviar ${NOME}: $(cat "$RESP" 2>/dev/null || true)"
+              sleep $((TENTATIVA * 15))
+            done
+            if [ "$OK" -ne 1 ]; then
+              echo "::error::Falha definitiva ao enviar ${NOME} apos 5 tentativas"
+              exit 1
+            fi
+          done
+
+      - name: Resumo da execução
+        run: |
+          {
+            echo "### ChirpStack - Manager Mobile ${{ steps.version.outputs.VERSION }} (build ${{ steps.version.outputs.BUILD }})"
+            echo ""
+            echo "| Arquivo | Tamanho |"
+            echo "|---|---|"
+            for F in build/release-dist/*; do
+              echo "| \`$(basename "$F")\` | $(du -h "$F" | cut -f1) |"
+            done
+            echo ""
+            echo "[Abrir o Release](${{ steps.release.outputs.url }}) · tag \`${{ steps.version.outputs.FULL_TAG }}\`"
+            echo ""
+            echo "Para testar no celular: \`${{ steps.artefatos.outputs.APK_CELULAR }}\`."
+          } >> $GITHUB_STEP_SUMMARY
+
+      # Encerra qualquer processo Gradle/Kotlin que tenha ficado do build (mesmo
+      # em falha/cancelamento), para nao acumular memoria entre os jobs.
+      - name: Encerrar Gradle do CI
+        if: always()
+        working-directory: .
+        run: |
+          # So encerra com o lock: nenhum outro build mobile esta rodando agora.
+          mkdir -p "$HOME/.gradle-ci"
+          exec 9>"$HOME/.gradle-ci/.build.lock"
+          flock -w 5400 9 || { echo ">> lock ocupado; nada encerrado."; exit 0; }
+          if [ -x "07.chirpstack_manager/app_chirpstack_manager_mobile/android/gradlew" ]; then
+            GRADLE_USER_HOME="$HOME/.gradle-ci" "07.chirpstack_manager/app_chirpstack_manager_mobile/android/gradlew" -p "07.chirpstack_manager/app_chirpstack_manager_mobile/android" --stop || true
+          fi
+          pkill -u "$(id -u)" -f 'gradle-ci.*(GradleDaemon|KotlinCompileDaemon)' || true
+
+      # Sempre roda, inclusive em falha/cancelamento: o keystore nunca fica no disco.
+      - name: Limpar segredos do notebook
+        if: always()
+        working-directory: .
+        run: rm -f "07.chirpstack_manager/app_chirpstack_manager_mobile/android/app/upload-keystore.jks" "07.chirpstack_manager/app_chirpstack_manager_mobile/android/key.properties"

@@ -1,0 +1,41 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Ingress do MeshCentral.
+#   - TLS automático via cert-manager (ClusterIssuer letsencrypt-prod).
+#   - WebSocket: o NGINX Ingress suporta nativamente; os timeouts longos abaixo
+#     mantêm as conexões persistentes do agente e das sessões de controle.
+#   - Backend em HTTP (o MeshCentral está em TLSOffload).
+#
+# DNS: o registro A "mesh-chirpstack.adailsilva.com.br" aponta para o IP do NLB (o mesmo dos
+# demais subdomínios) — necessário para o desafio HTTP-01 do Let's Encrypt.
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chirpstack-meshcentral-ingress
+  namespace: chirpstack-meshcentral
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  labels:
+    app: chirpstack-meshcentral-ingress
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - mesh-chirpstack.adailsilva.com.br
+      secretName: chirpstack-meshcentral-tls
+  rules:
+    - host: mesh-chirpstack.adailsilva.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-chirpstack-meshcentral-service
+                port:
+                  number: 80

@@ -1,0 +1,39 @@
+# AppProject 02-chirpstack — agrupa e restringe as Applications 'chirpstack-*' no ArgoCD.
+# O nome comeca pelo numero do repositorio: a lista de projetos da UI fica na ordem 00 -> 06.
+# Aplicado uma vez a mao no bootstrap (o app-of-apps precisa dele) e depois mantido pelo app-of-apps.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: 02-chirpstack
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+  annotations:
+    # Antes das Applications que o referenciam.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  description: "02 · ChirpStack — rede LoRaWAN (v3/v4), Manager (com monitoramento), site e MeshCentral"
+  sourceRepos:
+    - https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: 'chirpstack-*'
+    - server: https://kubernetes.default.svc
+      namespace: 'argocd'
+  # Recursos de cluster permitidos. Namespace: exigido pelo CreateNamespace=true.
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+  # Bancos e brokers sao aplicados pelo pipeline (ordem: CHECKPOINT -> Postgres -> Job de migracao).
+  # Esta janela 'deny' permanente bloqueia o Sync (inclusive o manual) dessas Applications,
+  # que ficam so de monitoramento. Liberar pontualmente: ver gitops/PADRAO-ARGOCD.md.
+  syncWindows:
+    - kind: deny
+      schedule: '0 0 * * *'
+      duration: 24h
+      timeZone: America/Fortaleza
+      manualSync: false
+      applications:
+        - '*-postgresql'
+        - '*-mosquitto'

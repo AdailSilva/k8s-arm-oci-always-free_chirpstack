@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ==========================================================================
+#  O ArgoCD/pipeline renderiza SOMENTE o Deployment.
+#  Namespace, Secret, ConfigMap, PostgreSQL (04 a 06), volume de backups (07)
+#  e Service (09) sao aplicados manualmente, na ordem do
+#  00.UsefulScripts/01.deploy_full_api-chirpstack-manager-backend_script.sh.
+#  O PostgreSQL nao pode ser recriado por sincronizacao automatica.
+# ==========================================================================
+resources:
+  - 10.api-chirpstack-manager-backend__Deployment.yaml
+
+images:
+  - name: <OCI_REGISTRY_URL>/<OCI_REGISTRY_OBJECT_STORAGE_NAMESPACE>/api-chirpstack-manager-backend_platform_linux-arm64
+    newName: gru.ocir.io/griszz3l82u1/api-chirpstack-manager-backend_platform_linux-arm64
+    # Atualizado pelo pipeline a cada build (tag imutavel = versao calculada).
+    # "latest" so ate o primeiro build; o pipeline troca pela versao (0.1, 0.2...).
+    newTag: "1.17"
+
+patches:
+  - target:
+      kind: Deployment
+      name: api-chirpstack-manager-backend-deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent

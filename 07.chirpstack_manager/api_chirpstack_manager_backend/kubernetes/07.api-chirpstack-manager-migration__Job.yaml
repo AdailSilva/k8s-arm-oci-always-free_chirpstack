@@ -1,0 +1,126 @@
+---
+
+# ==============================================================================
+#  Job de MIGRACAO (preparacao do banco) -- ChirpStack Manager
+#  (Job 07 entre o PostgreSQL 03-06 e o backend 10)
+#
+#  ESTRUTURA PELO FLYWAY DA API
+#  ---------------------------------------------------------------------------
+#  O Flyway da API fica LIGADO em producao (db/migration/PostgreSQL), porque o modulo
+#  de Backup & Restore depende dele: depois de restaurar um backup de uma versao
+#  anterior, a API roda flyway.migrate() e aplica as migracoes que faltarem.
+#  Desligar o Flyway perderia essa funcionalidade. Por isso este Job faz o que
+#  vem ANTES das tabelas, com o superusuario:
+#
+#    1. cria o chirpstack_manager_role e o chirpstack_manager_database quando
+#       faltam (WHERE NOT EXISTS) e REALINHA a senha do role ao Secret;
+#    2. garante o role como dono do database e do schema public -- a API roda o
+#       Flyway, o pg_dump e a restauracao (DROP/CREATE SCHEMA public) com ele.
+#
+#  REBUILD_SCHEMA (env do container `db-migration`)
+#      "true"  -> DROP SCHEMA public CASCADE + CREATE (ZERA OS DADOS). O Flyway
+#                 recria tudo no boot seguinte da API (o deploy reinicia a API).
+#      "false" -> padrao: nao toca nas tabelas. Variavel ausente = "false".
+#
+#  ORDEM: este Job e o 07 porque consome o servidor (05) pelo Service (06), e o
+#  backend (10) roda o Flyway sobre o banco que ele prepara.
+#  Job concluido e IMUTAVEL: o deploy faz `delete job` antes do apply.
+# ==============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-chirpstack-manager-db-migration-script
+  namespace: chirpstack-manager
+  labels:
+    app: api-chirpstack-manager-db-migration
+data:
+  migrar.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    DB=chirpstack_manager_database
+    ROLE=chirpstack_manager_role
+    export PGHOST=api-chirpstack-manager-postgresql-service.chirpstack-manager.svc.cluster.local
+    export PGPORT=5449
+
+    [ -n "${POSTGRES_SUPERUSER_PASSWORD:-}" ] || { echo ">> ERRO: POSTGRES_SUPERUSER_PASSWORD vazio (Secret api-chirpstack-manager-secret)."; exit 1; }
+    [ -n "${APP_ROLE_PASSWORD:-}" ] || { echo ">> ERRO: POSTGRESQL_PASSWORD vazio (Secret api-chirpstack-manager-secret)."; exit 1; }
+
+    echo ">> Aguardando o PostgreSQL ($PGHOST:$PGPORT)..."
+    for _ in $(seq 1 60); do pg_isready -q && break; sleep 5; done
+    pg_isready -q || { echo ">> ERRO: PostgreSQL indisponivel."; exit 1; }
+
+    # ── 1) Role e database (superusuario) ──────────────────────────────────
+    PGUSER=postgres PGPASSWORD="$POSTGRES_SUPERUSER_PASSWORD" \
+    psql -v ON_ERROR_STOP=1 -v senha="$APP_ROLE_PASSWORD" -d postgres <<'EOSQL'
+    SELECT 'CREATE ROLE chirpstack_manager_role WITH LOGIN'
+     WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'chirpstack_manager_role')\gexec
+    ALTER ROLE chirpstack_manager_role WITH LOGIN PASSWORD :'senha';
+    SELECT 'CREATE DATABASE chirpstack_manager_database WITH OWNER chirpstack_manager_role ENCODING ''UTF8'''
+     WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'chirpstack_manager_database')\gexec
+    ALTER DATABASE chirpstack_manager_database OWNER TO chirpstack_manager_role;
+    EOSQL
+    PGUSER=postgres PGPASSWORD="$POSTGRES_SUPERUSER_PASSWORD" \
+      psql -v ON_ERROR_STOP=1 -d "$DB" -c "ALTER SCHEMA public OWNER TO $ROLE;"
+    echo ">> Role e database conferidos."
+
+    # ── 2) REBUILD opcional (como o role, dono do schema) ────────────────────
+    if [ "${REBUILD_SCHEMA:-false}" = "true" ]; then
+      echo ">> REBUILD_SCHEMA=true: apagando e recriando o schema public (ZERA OS DADOS)."
+      PGUSER="$ROLE" PGPASSWORD="$APP_ROLE_PASSWORD" \
+        psql -v ON_ERROR_STOP=1 -d "$DB" -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"
+    fi
+    echo ">> Banco pronto. As tabelas sao criadas/atualizadas pelo Flyway da API no boot."
+
+---
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: api-chirpstack-manager-db-migration
+  namespace: chirpstack-manager
+  labels:
+    app: api-chirpstack-manager-db-migration
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: api-chirpstack-manager-db-migration
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+      containers:
+        - name: db-migration
+          image: postgres:17.5
+          command: ["/bin/bash", "/scripts/migrar.sh"]
+          env:
+            - name: REBUILD_SCHEMA
+              # Pre-lancamento: "true" -- cada deploy apaga o schema e o Flyway recria a
+              # estrutura ao subir a API. No go-live, "false".
+              value: "true"
+            - name: POSTGRES_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-chirpstack-manager-secret
+                  key: POSTGRES_SUPERUSER_PASSWORD
+            - name: APP_ROLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-chirpstack-manager-secret
+                  key: POSTGRESQL_PASSWORD
+          resources:
+            requests: { cpu: 20m, memory: 32Mi }
+            limits: { memory: 128Mi }
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: api-chirpstack-manager-db-migration-script
+            defaultMode: 0755

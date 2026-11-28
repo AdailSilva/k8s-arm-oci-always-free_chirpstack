@@ -1,0 +1,13 @@
+-- =====================================================================
+--  V17 - Fechar o navegador sempre encerra a sessão
+--
+--  Mesma regra dos demais sistemas: depois de fechar e reabrir o
+--  navegador é preciso entrar de novo. O cookie de renovação passa a ser
+--  sempre um cookie de sessão (sem Max-Age) e a opção "manter conectado"
+--  sai da tela Controle de sessão. A coluna fica, fixa em FALSE, para não
+--  mudar a estrutura da tabela.
+-- =====================================================================
+UPDATE tb_politica_sessao SET manter_conectado = FALSE;
+-- =====================================================================
+--  Fim da V17
+-- =====================================================================

@@ -1,0 +1,10 @@
+---
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chirpstack-meshcentral
+  annotations:
+    field.cattle.io/containerDefaultResourceLimit: '{}'
+  labels:
+    app.kubernetes.io/part-of: chirpstack-meshcentral

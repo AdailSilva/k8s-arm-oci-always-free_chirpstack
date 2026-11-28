@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.1.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>br.com.adailsilva</groupId>
+    <artifactId>api-chirpstack-manager-backend</artifactId>
+    <version>1.0.0</version>
+    <name>api-chirpstack-manager-backend</name>
+    <description>Backend (BFF) seguro para administração do ChirpStack v4 via REST API e monitoramento dos eventos LoRaWAN (MQTT): leituras, estado dos dispositivos e alertas</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Perfil do Spring: vem do perfil Maven ativo (ver <profiles>) e é gravado em
+             application.properties (spring.profiles.active=@activatedProperties@). -->
+        <activatedProperties>development</activatedProperties>
+        <spring-boot.run.profiles>development</spring-boot.run.profiles>
+    </properties>
+
+    <dependencies>
+        <!-- Web (Spring MVC) e cliente HTTP -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Segurança: JWT (HS256) emitido e validado pelo próprio backend -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+
+        <!-- Persistência: usuários do sistema, refresh tokens e auditoria -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- MQTT: eventos dos dispositivos publicados pelo ChirpStack v4 (monitoramento) -->
+        <dependency>
+            <groupId>org.eclipse.paho</groupId>
+            <artifactId>org.eclipse.paho.client.mqttv3</artifactId>
+            <version>1.2.5</version>
+        </dependency>
+        <!-- E-mail: alertas, redefinicao de senha e teste da conta -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <!-- SFTP do backup (computador/NAS da rede do cliente), mesmo padrão dos demais sistemas.
+             Fork mantido do JSch: chaves ed25519/ecdsa, rsa-sha2 e OpenSSH 8.8+. -->
+        <dependency>
+            <groupId>com.github.mwiede</groupId>
+            <artifactId>jsch</artifactId>
+            <version>0.2.20</version>
+        </dependency>
+
+        <!-- Observabilidade (health para o Kubernetes) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Testes -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>api-chirpstack-manager-backend</finalName>
+        <!-- Perfil Maven -> Spring: SO o application.properties e filtrado,
+             para trocar @activatedProperties@ pelo perfil do -P (development por padrao).
+             O restante continua sem filtro (os application-*.properties usam ${...}
+             do Spring). Com o parent do Spring Boot so o delimitador @...@ e substituido. -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>application.properties</include>
+                </includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>application.properties</exclude>
+                </excludes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <configuration>
+                    <encoding>UTF-8</encoding>
+                    <!-- Os .properties ficam em ISO-8859-1 (especificação de java.util.Properties).
+                         Não converter para UTF-8. -->
+                    <propertiesEncoding>ISO-8859-1</propertiesEncoding>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!--
+        Perfis de execução:
+          mvn spring-boot:run                 -> development (porta 8081, H2)
+          mvn spring-boot:run -Pstaging       -> staging     (porta 8082, PostgreSQL local)
+          mvn spring-boot:run -Pproduction    -> production  (porta 8083, PostgreSQL)
+        Configuração de cada um em src/main/resources/application-{perfil}.properties.
+        Em container, SPRING_PROFILES_ACTIVE tem prioridade sobre o perfil gravado no jar.
+    -->
+    <profiles>
+        <profile>
+            <id>development</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <activatedProperties>development</activatedProperties>
+                <spring-boot.run.profiles>development</spring-boot.run.profiles>
+            </properties>
+        </profile>
+        <profile>
+            <id>staging</id>
+            <properties>
+                <activatedProperties>staging</activatedProperties>
+                <spring-boot.run.profiles>staging</spring-boot.run.profiles>
+            </properties>
+        </profile>
+        <profile>
+            <id>production</id>
+            <properties>
+                <activatedProperties>production</activatedProperties>
+                <spring-boot.run.profiles>production</spring-boot.run.profiles>
+            </properties>
+        </profile>
+    </profiles>
+</project>

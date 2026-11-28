@@ -1,0 +1,32 @@
+# =====================================================================
+#  Ingress NGINX + cert-manager (Let's Encrypt).
+#  Ajuste o host e o nome do ClusterIssuer do seu cluster.
+# =====================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-chirpstack-manager-frontend-ingress
+  namespace: chirpstack-manager
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
+    # Limite simples por IP no Ingress (além do limite de login do backend)
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - app-chirpstack-manager.adailsilva.com.br
+      secretName: app-chirpstack-manager-frontend-tls
+  rules:
+    - host: app-chirpstack-manager.adailsilva.com.br
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: app-chirpstack-manager-frontend-service
+                port:
+                  number: 80

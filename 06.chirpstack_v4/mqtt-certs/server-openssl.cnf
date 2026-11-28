@@ -1,0 +1,22 @@
+[ req ]
+default_bits       = 2048
+prompt             = no
+default_md         = sha256
+distinguished_name = dn
+req_extensions     = req_ext
+
+[ dn ]
+CN = chirpstack-v4.adailsilva.com.br
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+# Domínio público (NLB / DNS externo — usado pelos gateways LoRaWAN físicos)
+DNS.1 = chirpstack-v4.adailsilva.com.br
+
+# DNS interno do Kubernetes (usado pelo ChirpStack v4 e Gateway Bridge dentro do cluster)
+DNS.2 = chirpstack-v4-mosquitto-service
+DNS.3 = chirpstack-v4-mosquitto-service.chirpstack-v4
+DNS.4 = chirpstack-v4-mosquitto-service.chirpstack-v4.svc
+DNS.5 = chirpstack-v4-mosquitto-service.chirpstack-v4.svc.cluster.local

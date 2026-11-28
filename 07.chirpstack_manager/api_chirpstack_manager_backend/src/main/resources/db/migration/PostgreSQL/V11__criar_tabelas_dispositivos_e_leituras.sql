@@ -1,0 +1,83 @@
+-- =====================================================================
+--  V11 - Dispositivos, leituras (uplinks) e eventos
+--
+--  Tudo nasce dos eventos que o ChirpStack v4 publica no MQTT
+--  (application/<aplicacao>/device/<devEUI>/event/<tipo>, JSON):
+--
+--  tb_dispositivo ......... um por DevEUI. Criado na primeira mensagem;
+--                           nome, aplicação, perfil e tags vêm do
+--                           deviceInfo do evento. "descricao" e "ativo"
+--                           são do painel (desativado = some do painel,
+--                           a coleta continua). Guarda o último estado
+--                           (contato, sinal, bateria, último objeto).
+--  tb_leitura ............. um por uplink (evento "up"). Idempotente pelo
+--                           deduplication_id do ChirpStack. "objeto" é o
+--                           JSON decodificado pelo codec do perfil.
+--  tb_evento_dispositivo .. demais eventos: join, status, ack, txack, log,
+--                           location, integration.
+-- =====================================================================
+CREATE TABLE tb_dispositivo (
+    id                 BIGSERIAL     PRIMARY KEY,
+    dev_eui            VARCHAR(16)   NOT NULL,
+    nome               VARCHAR(120)  NOT NULL,
+    descricao          VARCHAR(300),
+    aplicacao_id       VARCHAR(36),
+    aplicacao_nome     VARCHAR(120),
+    perfil_nome        VARCHAR(120),
+    tenant_nome        VARCHAR(120),
+    tags               VARCHAR(2000),
+    ativo              BOOLEAN       NOT NULL DEFAULT TRUE,
+    ultimo_contato_em  TIMESTAMP WITH TIME ZONE,
+    ultimo_evento      VARCHAR(20),
+    ultimo_rssi        INTEGER,
+    ultimo_snr         NUMERIC(6,2),
+    ultimo_f_cnt       BIGINT,
+    ultimo_gateway     VARCHAR(16),
+    ultima_bateria     INTEGER,
+    alimentacao_externa BOOLEAN,
+    ultimo_objeto      TEXT,
+    total_uplinks      BIGINT        NOT NULL DEFAULT 0,
+    criado_em          TIMESTAMP WITH TIME ZONE NOT NULL,
+    atualizado_em      TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT uk_tb_dispositivo_dev_eui UNIQUE (dev_eui),
+    CONSTRAINT ck_tb_dispositivo_bateria CHECK (ultima_bateria IS NULL OR ultima_bateria BETWEEN 0 AND 100)
+);
+
+CREATE TABLE tb_leitura (
+    id                 BIGSERIAL     PRIMARY KEY,
+    dispositivo_id     BIGINT        NOT NULL,
+    deduplication_id   VARCHAR(36)   NOT NULL,
+    recebido_em        TIMESTAMP WITH TIME ZONE NOT NULL,
+    f_cnt              BIGINT,
+    f_port             INTEGER,
+    dr                 INTEGER,
+    spreading_factor   INTEGER,
+    frequencia         BIGINT,
+    rssi               INTEGER,
+    snr                NUMERIC(6,2),
+    gateway_id         VARCHAR(16),
+    qtd_gateways       INTEGER,
+    confirmado         BOOLEAN,
+    dados_base64       VARCHAR(512),
+    objeto             TEXT,
+    CONSTRAINT uk_tb_leitura_deduplication UNIQUE (deduplication_id),
+    CONSTRAINT fk_tb_leitura_dispositivo FOREIGN KEY (dispositivo_id) REFERENCES tb_dispositivo (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_tb_leitura_dispositivo_data ON tb_leitura (dispositivo_id, recebido_em);
+CREATE INDEX idx_tb_leitura_data ON tb_leitura (recebido_em);
+
+CREATE TABLE tb_evento_dispositivo (
+    id                 BIGSERIAL     PRIMARY KEY,
+    dispositivo_id     BIGINT        NOT NULL,
+    tipo               VARCHAR(20)   NOT NULL,
+    recebido_em        TIMESTAMP WITH TIME ZONE NOT NULL,
+    nivel              VARCHAR(10),
+    descricao          VARCHAR(500),
+    payload            TEXT,
+    CONSTRAINT fk_tb_evento_dispositivo_dispositivo FOREIGN KEY (dispositivo_id) REFERENCES tb_dispositivo (id) ON DELETE CASCADE
+);
+CREATE INDEX idx_tb_evento_dispositivo_disp_data ON tb_evento_dispositivo (dispositivo_id, recebido_em);
+CREATE INDEX idx_tb_evento_dispositivo_data ON tb_evento_dispositivo (recebido_em);
+-- =====================================================================
+--  Fim da V11
+-- =====================================================================

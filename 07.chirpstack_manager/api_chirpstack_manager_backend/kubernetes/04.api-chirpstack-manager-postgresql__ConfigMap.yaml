@@ -1,0 +1,42 @@
+---
+
+# ==============================================================================
+#  Script de inicializacao do PostgreSQL do ChirpStack Manager.
+#
+#  Roda UMA vez, pelo docker-entrypoint do postgres, so com o volume vazio.
+#  Com o banco ja inicializado ele e ignorado -- quem mantem a senha do role
+#  em dia e o Job 07, que a realinha a cada execucao.
+#
+#  A senha do role NAO fica escrita aqui. Ela vem do Secret
+#  api-chirpstack-manager-secret (chave POSTGRESQL_PASSWORD, injetada no
+#  container como APP_ROLE_PASSWORD) e entra no SQL como variavel do psql, ja
+#  com aspas -- caractere especial na senha nao quebra o comando. A API usa a
+#  mesma chave do Secret, entao role e API nunca ficam com senhas diferentes.
+# ==============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-chirpstack-manager-postgresql-config-map
+  namespace: chirpstack-manager
+  labels:
+    app: api-chirpstack-manager-postgresql-config-map
+data:
+  001.api-chirpstack-manager-init-db.sh: |
+    #!/bin/bash
+    set -e
+
+    if [ -z "$APP_ROLE_PASSWORD" ]; then
+      echo ">> ERRO: APP_ROLE_PASSWORD vazio (chave POSTGRESQL_PASSWORD do Secret api-chirpstack-manager-secret)."
+      exit 1
+    fi
+
+    echo ">> Criando role e database do ChirpStack Manager..."
+
+    psql -v ON_ERROR_STOP=1 -v senha="$APP_ROLE_PASSWORD" --username "$POSTGRES_USER" --dbname postgres <<'EOSQL'
+      CREATE ROLE chirpstack_manager_role WITH LOGIN PASSWORD :'senha';
+      CREATE DATABASE chirpstack_manager_database WITH OWNER chirpstack_manager_role;
+    EOSQL
+
+    echo ">> Role e database criados."
+

@@ -1,0 +1,63 @@
+# =====================================================================
+#  Volume do PostgreSQL do painel (usuários, refresh tokens e auditoria).
+#
+#  Padrão de volumes (oci-fss-*-postgresql-data-<sistema>): OCI FSS montado
+#  como NFS ESTÁTICO (StorageClass + PersistentVolume + PVC), RWX, Retain.
+#  Não há provisionador dinâmico rodando; sem o PV o PVC fica em Pending.
+#
+#  Pasta no FSS (script de volumes, dono 999:999):
+#    /FileSystem-K8S/chirpstack-manager-postgresql-data
+#
+#  Retain: apagar o PVC NÃO apaga os dados.
+# =====================================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: oci-fss-postgresql-data-chirpstack-manager
+  labels:
+    app: oci-fss-postgresql-data-chirpstack-manager
+provisioner: oracle.com/oci-fss
+parameters:
+  mntTargetId: ocid1.mounttarget.oc1.sa_saopaulo_1.aaaaaa4np2xizkpzm5zhkllqojxwiottmewxgylpobqxk3dpfuys2ylefuyqaaaa
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: oci-fss-pv-postgresql-data-chirpstack-manager
+  labels:
+    app: oci-fss-pv-postgresql-data-chirpstack-manager
+spec:
+  storageClassName: oci-fss-postgresql-data-chirpstack-manager
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  mountOptions:
+    - nosuid
+    - vers=3
+  nfs:
+    server: 10.0.0.143
+    path: "/FileSystem-K8S/chirpstack-manager-postgresql-data"
+    readOnly: false
+  persistentVolumeReclaimPolicy: Retain
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oci-fss-pvc-postgresql-data-chirpstack-manager
+  namespace: chirpstack-manager
+  labels:
+    app: oci-fss-pvc-postgresql-data-chirpstack-manager
+spec:
+  storageClassName: oci-fss-postgresql-data-chirpstack-manager
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: oci-fss-pv-postgresql-data-chirpstack-manager

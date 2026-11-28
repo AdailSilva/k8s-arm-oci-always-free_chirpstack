@@ -1,0 +1,61 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Volume do MeshCentral no OCI FSS (mesmo mount target dos demais sistemas).
+# Guarda, em subpastas (subPath no Deployment):
+#   meshcentral-data     config.json, banco NeDB e certificados
+#   meshcentral-files    arquivos enviados pelas sessões
+#   meshcentral-backups  backups automáticos (AutoBackup, a cada 24 h)
+#
+# Pré-requisito: o diretório precisa existir no FSS. O pipeline o cria sozinho
+# (passo "Garantir diretório no FSS"); à mão, num nó com o FSS montado:
+#   sudo mkdir -p /mnt/oci-fss/chirpstack-meshcentral-data
+#
+# PV com Retain: apagar o PVC NÃO apaga os dados.
+# ═══════════════════════════════════════════════════════════════════════════════
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: oci-fss-chirpstack-meshcentral
+  labels:
+    app: oci-fss-chirpstack-meshcentral
+provisioner: oracle.com/oci-fss
+parameters:
+  mntTargetId: ocid1.mounttarget.oc1.sa_saopaulo_1.aaaaaa4np2xizkpzm5zhkllqojxwiottmewxgylpobqxk3dpfuys2ylefuyqaaaa
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: oci-fss-pv-chirpstack-meshcentral
+  labels:
+    app: oci-fss-pv-chirpstack-meshcentral
+spec:
+  storageClassName: oci-fss-chirpstack-meshcentral
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  mountOptions:
+    - nosuid
+    - vers=3
+  nfs:
+    server: 10.0.0.143
+    path: "/FileSystem-K8S/chirpstack-meshcentral-data"
+    readOnly: false
+  persistentVolumeReclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oci-fss-pvc-chirpstack-meshcentral
+  namespace: chirpstack-meshcentral
+  labels:
+    app: oci-fss-pvc-chirpstack-meshcentral
+spec:
+  storageClassName: oci-fss-chirpstack-meshcentral
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: oci-fss-pv-chirpstack-meshcentral

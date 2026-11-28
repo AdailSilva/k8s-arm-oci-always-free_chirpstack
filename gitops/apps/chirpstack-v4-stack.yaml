@@ -1,0 +1,46 @@
+# ChirpStack v4 completo (Mosquitto, PostgreSQL, Redis, Gateway Bridge, ChirpStack, REST API, toolbox)
+# Padrão de nome: <projeto>-<sistema>-<componente>  ·  AppProject 02-chirpstack  ·  ver gitops/PADRAO-ARGOCD.md
+# Modo STACK: sincronização MANUAL. PV/PVC/StorageClass, Namespace, cert-manager e
+# ClusterIssuer ficam de fora (Terraform/k8s_scaffold e scripts de 00.UsefulScripts).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chirpstack-v4-stack
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+    adailsilva.com.br/sistema: v4
+    adailsilva.com.br/componente: stack
+    adailsilva.com.br/implantacao: manual
+  annotations:
+    link.argocd.argoproj.io/external-link: https://chirpstack-v4.adailsilva.com.br
+spec:
+  project: 02-chirpstack
+  info:
+    - name: Pasta
+      value: 06.chirpstack_v4/kubernetes
+    - name: Implantação
+      value: "Sincronização manual (botão Sync) — alternativa aos scripts 00.UsefulScripts. Apagar a Application NÃO apaga os recursos"
+  source:
+    repoURL: https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+    targetRevision: master
+    path: 06.chirpstack_v4/kubernetes
+    directory:
+      recurse: false
+      include: '{02.chirpstack-v4-mosquitto__ConfigMap.yaml,03.chirpstack-v4-mosquitto__Deployment.yaml,04.chirpstack-v4-mosquitto__Service.yaml,06.chirpstack-v4-postgresql__ConfigMap.yaml,07.chirpstack-v4-postgresql__Deployment.yaml,08.chirpstack-v4-postgresql__Service.yaml,10.chirpstack-v4-redis__Deployment.yaml,11.chirpstack-v4-redis__Service.yaml,12.chirpstack-v4-bridge-gateway__ConfigMap.yaml,13.chirpstack-v4-bridge-gateway__Deployment.yaml,14.chirpstack-v4-bridge-gateway__Service.yaml,16.chirpstack-v4__ConfigMap.yaml,17.chirpstack-v4__Deployment.yaml,18.chirpstack-v4__Service.yaml,21.chirpstack-v4__Ingress.yaml,22.chirpstack-v4__gRPC_Ingress.yaml,23.chirpstack-v4-rest-api__Deployment.yaml,24.chirpstack-v4-rest-api__Service.yaml,27.chirpstack-v4-rest-api__Ingress.yaml,28.chirpstack-v4-toolbox__Deployment.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chirpstack-v4
+  syncPolicy:
+    syncOptions:
+      - ApplyOutOfSyncOnly=true
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # kubectl rollout restart (pipeline/scripts) grava esta anotacao no template.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+  revisionHistoryLimit: 20

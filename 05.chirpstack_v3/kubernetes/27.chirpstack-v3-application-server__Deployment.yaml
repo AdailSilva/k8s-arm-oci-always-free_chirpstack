@@ -1,0 +1,112 @@
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chirpstack-v3-application-server-deployment
+  namespace: chirpstack-v3
+  labels:
+    app: chirpstack-v3-application-server-deployment
+spec:
+  replicas: 1
+  strategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: chirpstack-v3-application-server-deployment
+  template:
+    metadata:
+      labels:
+        app: chirpstack-v3-application-server-deployment
+    spec:
+      containers:
+        - name: chirpstack-v3-application-server-deployment
+          image: chirpstack/chirpstack-application-server:3.17.9
+          env:
+            - name: APPLICATION_SERVER__API__PUBLIC_HOST
+              value: chirpstack-v3-application-server-service.chirpstack-v3.svc.cluster.local:8001
+
+            # Segredo que assina os tokens de login e de API (JWT). Secret chirpstack-v3-api-secret,
+            # criado/trocado por 00.UsefulScripts/09.criar_secrets_chirpstack-v3_script.sh (nunca no Git).
+            - name: APPLICATION_SERVER__EXTERNAL_API__JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v3-api-secret
+                  key: API_SECRET
+
+            - name: APPLICATION_SERVER__INTEGRATION__MQTT__SERVER
+              value: tcp://chirpstack-v3-mosquitto-service.chirpstack-v3.svc.cluster.local:1888
+            # Usuário/senha do broker: Secret chirpstack-v3-mqtt-credentials
+            # (00.UsefulScripts/09.criar_secrets_chirpstack-v3_script.sh; nunca no Git).
+            - name: APPLICATION_SERVER__INTEGRATION__MQTT__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v3-mqtt-credentials
+                  key: MQTT_USERNAME
+            - name: APPLICATION_SERVER__INTEGRATION__MQTT__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v3-mqtt-credentials
+                  key: MQTT_PASSWORD
+
+            - name: APPLICATION_SERVER__INTEGRATION__MQTT__CLIENT_ID
+              value: lorawan_chirpstack-application-server-v3
+
+            # - name: APPLICATION_SERVER__INTEGRATION__MQTT__PASSWORD
+            #   value: admin
+
+            - name: POSTGRESQL__DSN # APPLICATION_SERVER__INTEGRATION__POSTGRESQL__DSN
+              value: postgres://chirpstack_as:chirpstack_as@chirpstack-v3-as-postgresql-service.chirpstack-v3.svc.cluster.local:5438/chirpstack_as?sslmode=disable
+
+            - name: POSTGRESQL__PASSWORD
+              value: postgres
+
+            # - name: APPLICATION_SERVER__INTEGRATION__POSTGRESQL__PASSWORD
+            #   value: admin
+
+            - name: REDIS__URL # APPLICATION_SERVER__INTEGRATION__REDIS__URL
+              value: redis://chirpstack-v3-redis-service.chirpstack-v3.svc.cluster.local:6384
+
+            # - name: APPLICATION_SERVER__INTEGRATION__REDIS__PASSWORD
+            #   value: admin
+
+          # readinessProbe:
+          #  httpGet:
+          #    path: /health
+          #    port: 8101
+          #  initialDelaySeconds: 5
+          #  periodSeconds: 5
+          #  timeoutSeconds: 2
+          #  failureThreshold: 5
+
+          ports:
+            - name: http-port
+              containerPort: 8001
+            - name: join-port
+              containerPort: 8003
+            - name: ui-port
+              containerPort: 8080
+            - name: monitoring-port
+              containerPort: 8101
+          # resources:
+          #  limits:
+          #    cpu: "1"
+          #    memory: 1500Mi
+          #  requests:
+          #    cpu: "1"
+          #    memory: 750Mi
+          volumeMounts:
+            - name: chirpstack-v3-application-server-config
+              mountPath: /etc/chirpstack-application-server/chirpstack-application-server.toml
+              subPath: chirpstack-application-server.toml
+          imagePullPolicy: Always
+      volumes:
+        - name: chirpstack-v3-application-server-config
+          configMap:
+            name: chirpstack-v3-application-server-config-map
+      restartPolicy: "Always" # Unsupported value: "unless-stopped": supported values: "Always", "OnFailure", "Never".
+status: {}

@@ -1,0 +1,19 @@
+
+${AnsiColor.CYAN}  ███╗   ███╗ █████╗ ███╗   ██╗ █████╗  ██████╗ ███████╗██████╗   ${AnsiColor.DEFAULT}
+${AnsiColor.CYAN}  ████╗ ████║██╔══██╗████╗  ██║██╔══██╗██╔════╝ ██╔════╝██╔══██╗  ${AnsiColor.DEFAULT}
+${AnsiColor.CYAN}  ██╔████╔██║███████║██╔██╗ ██║███████║██║  ███╗█████╗  ██████╔╝  ${AnsiColor.DEFAULT}
+${AnsiColor.CYAN}  ██║╚██╔╝██║██╔══██║██║╚██╗██║██╔══██║██║   ██║██╔══╝  ██╔══██╗  ${AnsiColor.DEFAULT}
+${AnsiColor.CYAN}  ██║ ╚═╝ ██║██║  ██║██║ ╚████║██║  ██║╚██████╔╝███████╗██║  ██║  ${AnsiColor.DEFAULT}
+${AnsiColor.CYAN}  ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝  ${AnsiColor.DEFAULT}
+${AnsiColor.CYAN}  ▁▅▇▅▆█▇▂▅▆▄▅█▇▄▆▆▂▄▇▇▄▇█▄▃▆▆▃██▅▅▆▄▂▇▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  ${AnsiColor.DEFAULT}
+
+${AnsiColor.DEFAULT}:: ${application.title} 🤓 ${application.version} :: Administração da rede LoRaWAN ChirpStack v4 (REST API v4.19), usuários, sessões e backups ::
+${AnsiColor.BRIGHT_CYAN}:: Perfil .........: ${AnsiColor.RED}--> (${AnsiColor.GREEN}${spring.profiles.active:default}${AnsiColor.RED})${AnsiColor.BRIGHT_CYAN} :: Spring Boot ${spring-boot.version} :: Java ${java.version} (${java.vendor}) ::
+${AnsiColor.BRIGHT_CYAN}:: Servidor .......: ${os.name} ${os.arch} :: porta ${server.port:8080} :: contexto ${server.servlet.context-path:/} ::
+${AnsiColor.BRIGHT_CYAN}:: Saúde e docs ...: actuator na porta ${management.server.port:${server.port:8080}} (${management.endpoints.web.base-path:/actuator}/health) :: sem OpenAPI — rotas no README.md do backend ::
+${AnsiColor.BRIGHT_YELLOW}:: Site ...........: https://app-chirpstack-manager.adailsilva.com.br ::
+${AnsiColor.BRIGHT_YELLOW}:: API ............: https://app-chirpstack-manager.adailsilva.com.br/api (proxy NGINX do frontend) ::
+${AnsiColor.BRIGHT_MAGENTA}:: Kubernetes .....: namespace chirpstack-manager :: imagem api-chirpstack-manager-backend_platform_linux-arm64 (OCIR, ARM64) :: deploy via ArgoCD ::
+${AnsiColor.BRIGHT_MAGENTA}:: Repositório ....: github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack :: 07.chirpstack_manager/api_chirpstack_manager_backend ::
+${AnsiColor.BRIGHT_BLUE}:: Empresa ........: Adail Silva IoT — Rede LoRaWAN própria (ChirpStack v4) no Kubernetes ARM da OCI ::
+${AnsiColor.BRIGHT_BLUE}:: Desenvolvimento : Adail Silva — Da Sua Ideia ao Kubernetes — https://k8s.adailsilva.com.br ::${AnsiColor.DEFAULT}

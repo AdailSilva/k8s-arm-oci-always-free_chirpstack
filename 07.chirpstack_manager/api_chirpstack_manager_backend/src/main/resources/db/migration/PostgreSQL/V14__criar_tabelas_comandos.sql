@@ -1,0 +1,97 @@
+-- =====================================================================
+--  V14 - Fila de comandos (downlinks) com novas tentativas
+--
+--  tb_comando ............ um comando pedido a um dispositivo. Estados:
+--                          PENDENTE ..... aguardando a vez (um comando
+--                                         ativo por dispositivo), a janela
+--                                         de horário ou a próxima tentativa;
+--                          ENFILEIRADO .. na fila do ChirpStack;
+--                          TRANSMITIDO .. o gateway transmitiu (txack);
+--                          EXECUTADO .... há prova da execução (resposta
+--                                         V1 com o mesmo seq, "AT OK",
+--                                         resposta Modbus, ack LoRaWAN ou,
+--                                         para firmware que não responde,
+--                                         a própria transmissão);
+--                          FALHOU, EXPIRADO, CANCELADO.
+--                          Sem prova dentro de "aguardar_resposta_s", a
+--                          tentativa falha e volta a PENDENTE para
+--                          "proxima_tentativa_em" = agora + intervalo x
+--                          fator_recuo^(tentativas-1), até
+--                          "max_tentativas" ou "validade_em".
+--                          Janela: "janela_inicio"/"janela_fim" (hora
+--                          local) e "dias_semana" (bits: 1 = segunda ...
+--                          64 = domingo; 127 = todos).
+--                          "estrategia" diz qual prova encerra o comando.
+--                          "origem": MANUAL, AGENDAMENTO, AUTOMACAO, CENA,
+--                          RECONCILIACAO ou PULSO (desligamento automático
+--                          ao fim de um pulso no Radioenge original).
+--  tb_comando_tentativa .. histórico de cada envio ao ChirpStack.
+-- =====================================================================
+CREATE TABLE tb_comando (
+    id                    BIGSERIAL     PRIMARY KEY,
+    dispositivo_id        BIGINT        NOT NULL,
+    tipo                  VARCHAR(30)   NOT NULL,
+    parametros            TEXT,
+    resumo                VARCHAR(200)  NOT NULL,
+    f_port                INTEGER       NOT NULL,
+    dados_base64          VARCHAR(512)  NOT NULL,
+    confirmado            BOOLEAN       NOT NULL DEFAULT FALSE,
+    seq                   INTEGER,
+    estrategia            VARCHAR(25)   NOT NULL,
+    status                VARCHAR(15)   NOT NULL DEFAULT 'PENDENTE',
+    origem                VARCHAR(15)   NOT NULL DEFAULT 'MANUAL',
+    origem_id             BIGINT,
+    tentativas            INTEGER       NOT NULL DEFAULT 0,
+    max_tentativas        INTEGER       NOT NULL,
+    intervalo_tentativa_s INTEGER       NOT NULL,
+    fator_recuo           NUMERIC(4,2)  NOT NULL DEFAULT 1,
+    aguardar_resposta_s   INTEGER       NOT NULL,
+    validade_em           TIMESTAMP WITH TIME ZONE NOT NULL,
+    janela_inicio         TIME,
+    janela_fim            TIME,
+    dias_semana           INTEGER       NOT NULL DEFAULT 127,
+    proxima_tentativa_em  TIMESTAMP WITH TIME ZONE NOT NULL,
+    chirpstack_item_id    VARCHAR(36),
+    enfileirado_em        TIMESTAMP WITH TIME ZONE,
+    transmitido_em        TIMESTAMP WITH TIME ZONE,
+    concluido_em          TIMESTAMP WITH TIME ZONE,
+    resposta              TEXT,
+    detalhe               VARCHAR(500),
+    criado_por            VARCHAR(160),
+    criado_em             TIMESTAMP WITH TIME ZONE NOT NULL,
+    atualizado_em         TIMESTAMP WITH TIME ZONE NOT NULL,
+    versao                BIGINT        NOT NULL DEFAULT 0,
+    CONSTRAINT fk_tb_comando_dispositivo FOREIGN KEY (dispositivo_id) REFERENCES tb_dispositivo (id) ON DELETE CASCADE,
+    CONSTRAINT ck_tb_comando_status CHECK (status IN ('PENDENTE', 'ENFILEIRADO', 'TRANSMITIDO', 'EXECUTADO', 'FALHOU', 'EXPIRADO', 'CANCELADO')),
+    CONSTRAINT ck_tb_comando_estrategia CHECK (estrategia IN ('RESPOSTA_V1', 'RESPOSTA_AT', 'RESPOSTA_MODBUS', 'CONFIRMACAO_LORAWAN', 'TRANSMISSAO')),
+    CONSTRAINT ck_tb_comando_origem CHECK (origem IN ('MANUAL', 'AGENDAMENTO', 'AUTOMACAO', 'CENA', 'RECONCILIACAO', 'PULSO')),
+    CONSTRAINT ck_tb_comando_porta CHECK (f_port BETWEEN 1 AND 223),
+    CONSTRAINT ck_tb_comando_seq CHECK (seq IS NULL OR seq BETWEEN 0 AND 255),
+    CONSTRAINT ck_tb_comando_tentativas CHECK (max_tentativas BETWEEN 1 AND 50 AND tentativas >= 0),
+    CONSTRAINT ck_tb_comando_intervalo CHECK (intervalo_tentativa_s BETWEEN 10 AND 86400),
+    CONSTRAINT ck_tb_comando_recuo CHECK (fator_recuo BETWEEN 1 AND 4),
+    CONSTRAINT ck_tb_comando_aguardar CHECK (aguardar_resposta_s BETWEEN 10 AND 86400),
+    CONSTRAINT ck_tb_comando_dias CHECK (dias_semana BETWEEN 1 AND 127)
+);
+CREATE INDEX idx_tb_comando_fila ON tb_comando (status, proxima_tentativa_em);
+CREATE INDEX idx_tb_comando_dispositivo ON tb_comando (dispositivo_id, criado_em);
+CREATE INDEX idx_tb_comando_item ON tb_comando (chirpstack_item_id);
+
+CREATE TABLE tb_comando_tentativa (
+    id                 BIGSERIAL     PRIMARY KEY,
+    comando_id         BIGINT        NOT NULL,
+    numero             INTEGER       NOT NULL,
+    chirpstack_item_id VARCHAR(36),
+    enfileirado_em     TIMESTAMP WITH TIME ZONE NOT NULL,
+    transmitido_em     TIMESTAMP WITH TIME ZONE,
+    concluida_em       TIMESTAMP WITH TIME ZONE,
+    resultado          VARCHAR(20),
+    detalhe            VARCHAR(500),
+    CONSTRAINT fk_tb_comando_tentativa_comando FOREIGN KEY (comando_id) REFERENCES tb_comando (id) ON DELETE CASCADE,
+    CONSTRAINT ck_tb_comando_tentativa_resultado CHECK (resultado IS NULL OR resultado IN
+        ('EXECUTADO', 'SEM_RESPOSTA', 'NAO_CONFIRMADO', 'ERRO', 'RECUSADO', 'OCUPADO', 'PERDIDO', 'EXPIRADO', 'CANCELADO'))
+);
+CREATE INDEX idx_tb_comando_tentativa_comando ON tb_comando_tentativa (comando_id, numero);
+-- =====================================================================
+--  Fim da V14
+-- =====================================================================

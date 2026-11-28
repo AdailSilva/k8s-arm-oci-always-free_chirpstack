@@ -1,0 +1,212 @@
+
+---
+# ==============================================================================
+#  PostgreSQL PROPRIO do ChirpStack Manager.
+#  Desenho: postgres:17.5, volume no OCI FSS
+#  isolado por subPath, initContainers de permissao e limpeza, strategy Recreate,
+#  senhas vindas do Secret 02 e readinessProbe com o banco da aplicacao.
+#
+#  Os dados ficam no subPath `chirpstack-manager` dentro de
+#  /FileSystem-K8S/chirpstack-manager-postgresql-data.
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-chirpstack-manager-postgresql-deployment
+  namespace: chirpstack-manager
+  labels:
+    app: api-chirpstack-manager-postgresql-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-chirpstack-manager-postgresql-deployment
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: api-chirpstack-manager-postgresql-deployment
+    spec:
+      # ======================================================================
+      #  terminationGracePeriodSeconds: 300 (o padrao seria 30s)
+      #
+      #  Ao parar (rollout com strategy: Recreate, delete do pod, dreno de no), o
+      #  PostgreSQL faz um CHECKPOINT de desligamento: grava em disco todo o
+      #  shared_buffers sujo. Sobre o OCI FSS (NFS) isso pode passar de 30s --
+      #  e o kubelet entao mata o processo com SIGKILL no meio do desligamento.
+      #  Isso pode corromper o banco ("database system shutdown was
+      #  interrupted" seguido de "xlog flush request ... is not satisfied" na
+      #  recuperacao, com o pod em CrashLoop).
+      #  300s da tempo de sobra; um desligamento normal termina bem antes e o
+      #  pod sai assim que o postgres encerra -- o valor e so o teto.
+      # ======================================================================
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      initContainers:
+        # 1. Ensures the subPath exists and has correct permissions.
+        - name: fix-permissions-chirpstack-manager
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              if [ "$FIX_PERMISSIONS" = "true" ]; then
+                echo ">> Creating /mnt-data-chirpstack-manager/chirpstack-manager and fixing permissions"
+                mkdir -p /mnt-data-chirpstack-manager/chirpstack-manager
+                chown -R 999:999 /mnt-data-chirpstack-manager/chirpstack-manager
+                echo ">> Creating /var/run/postgresql and fixing permissions"
+                mkdir -p /var/run/postgresql
+                chown -R 999:999 /var/run/postgresql
+              fi
+              echo ">> Done"
+          env:
+            - name: FIX_PERMISSIONS
+              value: "true"
+          securityContext:
+            runAsUser: 0
+          volumeMounts:
+            - name: oci-fss-pvc-postgresql-data-chirpstack-manager
+              mountPath: /mnt-data-chirpstack-manager
+            - name: pg-socket-dir
+              mountPath: /var/run/postgresql
+        # 2. Clear only PostgreSQL data from specific folder.
+        # Warning: This initContainer removes all data from the mounted directory, which would normally delete all Postgres databases, including those of other applications.
+        # However, in this case, I am using the 'subPath' feature to isolate the data directory of each Postgres instance, ensuring that only the database of this application is affected. :-)
+        - name: init-clean-chirpstack-manager # Clean up previous volumes that may prevent the execution of scripts contained in the ConfigMap.
+          image: busybox
+          command: ["/bin/sh", "-c"]
+          args: ["if [ \"$CLEAR_DB\" = \"true\" ]; then rm -rf /var/lib/postgresql/data/* && echo \">> Wiping volume...\" && rm -rf /mnt-data-chirpstack-manager/* && echo \">> Done.\"; fi"]
+          env:
+            - name: CLEAR_DB
+              value: "false"
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+          volumeMounts:
+            - name: oci-fss-pvc-postgresql-data-chirpstack-manager
+              mountPath: /var/lib/postgresql/data
+              subPath: chirpstack-manager
+      containers:
+        - name: api-chirpstack-manager-postgresql
+          image: postgres:17.5 #17.5 #14-alpine #latest
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            # Senha do superusuario postgres: Secret api-chirpstack-manager-secret
+            # (chave POSTGRES_SUPERUSER_PASSWORD).
+            # ATENCAO: o PostgreSQL so le POSTGRES_PASSWORD na PRIMEIRA inicializacao
+            # do volume. Para trocar depois: ALTER ROLE postgres no pod e so entao
+            # atualizar o Secret (o script 00.UsefulScripts faz os dois).
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-chirpstack-manager-secret
+                  key: POSTGRES_SUPERUSER_PASSWORD
+            # Senha do role da aplicacao (chirpstack_manager_role). Lida SO pelo script de
+            # inicializacao (05), na primeira subida do volume. Vem do Secret
+            # api-chirpstack-manager-secret -- o mesmo que a API e o Job 07 leem.
+            - name: APP_ROLE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-chirpstack-manager-secret
+                  key: POSTGRESQL_PASSWORD
+            - name: POSTGRES_INITDB_SKIP_DIR_PERMS
+              value: "true"
+          command: ["docker-entrypoint.sh"]
+          # ── Memoria do PostgreSQL ──────────────────────────────────────────────
+          # requests/limits e ajuste de memoria: sem eles o container fica em QoS
+          # BestEffort, o PRIMEIRO a ser morto pelo kubelet quando o worker entra em
+          # pressao de memoria, e sem limite o banco pode crescer e empurrar o proprio
+          # no para essa pressao, derrubando os backends junto.
+          #   shared_buffers        cache do proprio PostgreSQL (fica dentro do limite)
+          #   work_mem              por operacao de ordenacao/hash, por conexao
+          #   maintenance_work_mem  indices/VACUUM (carga e restore criam indices)
+          #   effective_cache_size  so orienta o planejador; nao aloca nada
+          #   max_connections       pool da API + migracao/backup/carga, com folga
+          # Alterar estes valores reinicia o pod do banco (strategy Recreate):
+          # aplique fora do horario de uso.
+          args: ["postgres", "-p", "5432", "-c", "shared_buffers=64MB", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=32MB", "-c", "effective_cache_size=256MB", "-c", "max_connections=40"]
+          securityContext:
+            runAsUser: 999
+            runAsGroup: 999
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "25m"
+            limits:
+              memory: "512Mi"
+          ports:
+            - containerPort: 5432
+          # ==================================================================
+          #  readinessProbe (NOVO)
+          #
+          #  Sem probe, o pod fica Ready no instante em que o container sobe --
+          #  inclusive durante o initdb e os scripts do ConfigMap, quando o
+          #  entrypoint roda um servidor TEMPORARIO so por socket. O pipeline
+          #  (kubectl rollout status / wait ready) liberava o Job de migracao
+          #  cedo demais.
+          #
+          #  Via TCP em 127.0.0.1 e no banco da aplicacao: o servidor temporario
+          #  do initdb nao escuta TCP, e chirpstack_manager_database so existe depois que
+          #  o script de init rodou. Ready aqui = banco realmente utilizavel.
+          # ==================================================================
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -p 5432 -U postgres -d chirpstack_manager_database -tAc 'SELECT 1' >/dev/null
+            # timeout 10s / 6 falhas: psql com autenticacao SCRAM sobre FSS, num
+            # no de 1 OCPU dividido com builds do runner, pode passar de 5s sem o
+            # banco ter problema algum -- com menos o pod fica "piscando"
+            # NotReady. Queda real continua aparecendo como reinicio.
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 6
+            successThreshold: 1
+          volumeMounts:
+            - name: pg-socket-dir
+              mountPath: /var/run/postgresql
+            # /dev/shm do container e de so 64 MB por padrao; as consultas paralelas do
+            # PostgreSQL usam memoria compartilhada ali e falhavam com "could not resize
+            # shared memory segment". Conta dentro do limite de memoria do container.
+            - name: dshm
+              mountPath: /dev/shm
+            - name: configmap-init-chirpstack-manager
+              mountPath: /docker-entrypoint-initdb.d
+            - name: oci-fss-pvc-postgresql-data-chirpstack-manager
+              # This directory cannot be outside /var/lib/postgresql/data, 
+              # because when deleting the postgres pod the information will continue to be persisted and can be recovered, 
+              # however if the directory to be mounted is modified to another path, all tables and consequently the data will be discarded.
+              mountPath: /var/lib/postgresql/data
+              subPath: chirpstack-manager
+      volumes:
+        - name: pg-socket-dir
+          emptyDir: {}   # ← Ensures correct permissions on /var/run/postgresql
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+        - name: configmap-init-chirpstack-manager
+          configMap:
+            name: api-chirpstack-manager-postgresql-config-map
+            defaultMode: 0755
+            items:
+              - key: 001.api-chirpstack-manager-init-db.sh
+                path: 001.api-chirpstack-manager-init-db.sh
+        - name: oci-fss-pvc-postgresql-data-chirpstack-manager
+          persistentVolumeClaim:
+            claimName: oci-fss-pvc-postgresql-data-chirpstack-manager
+      restartPolicy: "Always" # Unsupported value: "unless-stopped": supported values: "Always", "OnFailure", "Never".
+status: {}
+

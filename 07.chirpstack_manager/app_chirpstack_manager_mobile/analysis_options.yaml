@@ -1,0 +1,17 @@
+# Análise estática (flutter analyze roda no pipeline mobile.yml e falha em qualquer aviso).
+# Regras recomendadas do Flutter: https://dart.dev/lints
+
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+    - linux/**
+  errors:
+    # API marcada como obsoleta numa versão nova do SDK não derruba o build do pipeline; erros e
+    # os demais avisos continuam fatais. Para revisar as obsoletas, comente estas duas linhas e
+    # rode `flutter analyze` localmente.
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore

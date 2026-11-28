@@ -1,0 +1,69 @@
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chirpstack-v4-gateway-bridge-deployment
+  namespace: chirpstack-v4
+  labels:
+    LoRaWAN: chirpstack-v4
+spec:
+  selector:
+    matchLabels:
+      app: chirpstack-v4-gateway-bridge-deployment
+  template:
+    metadata:
+      labels:
+        app: chirpstack-v4-gateway-bridge-deployment
+    spec:
+      restartPolicy: Always # Unsupported value: "unless-stopped": supported values: "Always", "OnFailure", "Never".
+      containers:
+        - name: chirpstack-v4-gateway-bridge
+          image: chirpstack/chirpstack-gateway-bridge:4.1
+          imagePullPolicy: Always
+          # Credenciais do MQTT: o mesmo usuário do ChirpStack (Secret chirpstack-v4-mqtt-credentials;
+          # troca de senha em 00.UsefulScripts/07.criar_secrets_chirpstack-v4_script.sh --trocar-mqtt). MQTT_* alimenta o
+          # "$MQTT_USERNAME"/"$MQTT_PASSWORD" do ConfigMap; INTEGRATION__MQTT__AUTH__GENERIC__*
+          # sobrepõe as mesmas chaves pela convenção de variáveis de ambiente do Gateway Bridge.
+          env:
+            - name: MQTT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v4-mqtt-credentials
+                  key: MQTT_USERNAME
+            - name: MQTT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v4-mqtt-credentials
+                  key: MQTT_PASSWORD
+            - name: INTEGRATION__MQTT__AUTH__GENERIC__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v4-mqtt-credentials
+                  key: MQTT_USERNAME
+            - name: INTEGRATION__MQTT__AUTH__GENERIC__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-v4-mqtt-credentials
+                  key: MQTT_PASSWORD
+          ports:
+            - containerPort: 1700
+              protocol: UDP
+          volumeMounts:
+            - name: chirpstack-v4-gateway-bridge-volume
+              mountPath: /etc/chirpstack-gateway-bridge
+            - name: mqtt-ca
+              mountPath: /etc/chirpstack-gateway-bridge-certs
+              readOnly: true
+      volumes:
+        - name: chirpstack-v4-gateway-bridge-volume
+          configMap:
+            name: chirpstack-v4-gateway-bridge-config-map
+            defaultMode: 493
+        - name: mqtt-ca
+          secret:
+            secretName: chirpstack-v4-mosquitto-ca
+            items:
+              - key: ca.crt
+                path: ca.crt

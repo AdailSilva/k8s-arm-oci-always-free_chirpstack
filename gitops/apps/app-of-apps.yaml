@@ -1,0 +1,29 @@
+# Raiz do GitOps do repositorio k8s-arm-oci-always-free_chirpstack: cria o(s) AppProject(s) e as Applications abaixo.
+# Bootstrap (uma vez):  bash gitops/bootstrap/01-aplicar-padrao-argocd.sh
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chirpstack-app-of-apps
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+    adailsilva.com.br/sistema: gitops
+    adailsilva.com.br/componente: app-of-apps
+    adailsilva.com.br/implantacao: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: 02-chirpstack
+  source:
+    repoURL: https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+    targetRevision: master
+    path: gitops/apps
+    directory:
+      recurse: false
+      include: '{appproject-02-chirpstack.yaml,chirpstack-site-frontend.yaml,chirpstack-v3-stack.yaml,chirpstack-v4-stack.yaml,chirpstack-manager-backend.yaml,chirpstack-manager-frontend.yaml,chirpstack-manager-postgresql.yaml,chirpstack-meshcentral.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }

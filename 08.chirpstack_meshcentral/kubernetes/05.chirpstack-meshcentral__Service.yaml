@@ -1,0 +1,20 @@
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  # Mesmo padrão em todos os projetos: app-<empresa>-meshcentral-service (nome de Service
+  # precisa começar com letra, DNS-1035).
+  name: app-chirpstack-meshcentral-service
+  namespace: chirpstack-meshcentral
+  labels:
+    app: app-chirpstack-meshcentral-service
+spec:
+  type: ClusterIP
+  selector:
+    app: chirpstack-meshcentral-deployment
+  ports:
+    - name: http
+      port: 80
+      targetPort: 443        # o MeshCentral serve HTTP na 443 (TLSOffload)
+      protocol: TCP

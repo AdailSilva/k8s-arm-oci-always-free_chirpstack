@@ -1,0 +1,46 @@
+# ChirpStack v3 completo (Mosquitto, PostgreSQL NS/AS, Redis, Gateway Bridge, NS, AS, toolbox)
+# Padrão de nome: <projeto>-<sistema>-<componente>  ·  AppProject 02-chirpstack  ·  ver gitops/PADRAO-ARGOCD.md
+# Modo STACK: sincronização MANUAL. PV/PVC/StorageClass, Namespace, cert-manager e
+# ClusterIssuer ficam de fora (Terraform/k8s_scaffold e scripts de 00.UsefulScripts).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chirpstack-v3-stack
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+    adailsilva.com.br/sistema: v3
+    adailsilva.com.br/componente: stack
+    adailsilva.com.br/implantacao: manual
+  annotations:
+    link.argocd.argoproj.io/external-link: https://chirpstack-v3.adailsilva.com.br
+spec:
+  project: 02-chirpstack
+  info:
+    - name: Pasta
+      value: 05.chirpstack_v3/kubernetes
+    - name: Implantação
+      value: "Sincronização manual (botão Sync) — alternativa aos scripts 00.UsefulScripts. Apagar a Application NÃO apaga os recursos"
+  source:
+    repoURL: https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+    targetRevision: master
+    path: 05.chirpstack_v3/kubernetes
+    directory:
+      recurse: false
+      include: '{02.chirpstack-v3-mosquitto__ConfigMap.yaml,03.chirpstack-v3-mosquitto__Deployment.yaml,04.chirpstack-v3-mosquitto__Service.yaml,10.chirpstack-v3-ns-as-postgresql__ConfigMap.yaml,11.chirpstack-v3-ns-postgresql__Deployment.yaml,12.chirpstack-v3-ns-postgresql__Service.yaml,13.chirpstack-v3-as-postgresql__Deployment.yaml,14.chirpstack-v3-as-postgresql__Service.yaml,16.chirpstack-v3-redis__Deployment.yaml,17.chirpstack-v3-redis__Service.yaml,18.chirpstack-v3-gateway-bridge__ConfigMap.yaml,19.chirpstack-v3-gateway-bridge__Deployment.yaml,20.chirpstack-v3-gateway-bridge__Service.yaml,21.chirpstack-v3-network-server__ConfigMap.yaml,22.chirpstack-v3-network-server__Deployment.yaml,23.chirpstack-v3-network-server__Service.yaml,25.chirpstack-v3-application-server__ConfigMap.yaml,27.chirpstack-v3-application-server__Deployment.yaml,28.chirpstack-v3-application-server__Service.yaml,31.chirpstack-v3-application-server__Ingress.yaml,32.chirpstack-v3-toolbox__Deployment.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chirpstack-v3
+  syncPolicy:
+    syncOptions:
+      - ApplyOutOfSyncOnly=true
+      - CreateNamespace=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # kubectl rollout restart (pipeline/scripts) grava esta anotacao no template.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+  revisionHistoryLimit: 20

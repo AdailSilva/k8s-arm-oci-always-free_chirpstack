@@ -1,0 +1,19 @@
+---
+
+# PostgreSQL do ChirpStack Manager. Porta 5449 no Service, 5432 no container.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-chirpstack-manager-postgresql-service
+  namespace: chirpstack-manager
+  labels:
+    app: api-chirpstack-manager-postgresql-service
+spec:
+  type: ClusterIP
+  selector:
+    app: api-chirpstack-manager-postgresql-deployment
+  ports:
+    - name: "5432-to-5449"
+      protocol: TCP
+      port: 5449
+      targetPort: 5432

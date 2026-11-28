@@ -1,0 +1,66 @@
+# =====================================================================
+#  Volume da aplicação (backups do painel), montado no pod da API em
+#  /var/backups/chirpstack-manager (subpastas manuais/, agendados/ e
+#  seguranca/). O pg_dump roda dentro do pod da API e fala direto com o
+#  serviço do PostgreSQL (sem kubectl e sem RBAC extra).
+#
+#  Padrão de volumes (pasta <sistema>-data, PV oci-fss-pv-<sistema>): OCI FSS montado como NFS ESTÁTICO
+#  (StorageClass + PersistentVolume + PVC), RWX, Retain.
+#
+#  Pasta no FSS (script de volumes, dono 10001:10001 = usuário da API;
+#  fsGroup não troca dono em volume NFS):
+#    /FileSystem-K8S/chirpstack-manager-data
+#
+#  Retain: apagar o PVC NÃO apaga os backups.
+# =====================================================================
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: oci-fss-chirpstack-manager
+  labels:
+    app: oci-fss-chirpstack-manager
+provisioner: oracle.com/oci-fss
+parameters:
+  mntTargetId: ocid1.mounttarget.oc1.sa_saopaulo_1.aaaaaa4np2xizkpzm5zhkllqojxwiottmewxgylpobqxk3dpfuys2ylefuyqaaaa
+
+---
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: oci-fss-pv-chirpstack-manager
+  labels:
+    app: oci-fss-pv-chirpstack-manager
+spec:
+  storageClassName: oci-fss-chirpstack-manager
+  capacity:
+    storage: 2Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany
+  mountOptions:
+    - nosuid
+    - vers=3
+  nfs:
+    server: 10.0.0.143
+    path: "/FileSystem-K8S/chirpstack-manager-data"
+    readOnly: false
+  persistentVolumeReclaimPolicy: Retain
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: oci-fss-pvc-chirpstack-manager
+  namespace: chirpstack-manager
+  labels:
+    app: oci-fss-pvc-chirpstack-manager
+spec:
+  storageClassName: oci-fss-chirpstack-manager
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 2Gi
+  volumeName: oci-fss-pv-chirpstack-manager

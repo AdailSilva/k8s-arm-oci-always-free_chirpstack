@@ -1,0 +1,19 @@
+# =====================================================================
+#  Service do backend.
+#  O nginx.conf do frontend encaminha /api para este nome:
+#    api-chirpstack-manager-backend-service:8083
+# =====================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-chirpstack-manager-backend-service
+  namespace: chirpstack-manager
+spec:
+  type: ClusterIP
+  selector:
+    app: api-chirpstack-manager-backend-deployment
+    component: backend
+  ports:
+    - name: backend-port # 8083-to-8083
+      port: 8083
+      targetPort: 8083

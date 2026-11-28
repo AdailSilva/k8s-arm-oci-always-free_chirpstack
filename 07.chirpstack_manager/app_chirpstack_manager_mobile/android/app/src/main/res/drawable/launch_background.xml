@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Abertura nativa: azul-noite com o símbolo do ChirpStack Manager, até o Flutter desenhar o login. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/manager_abertura" />
+    <item android:gravity="center" android:drawable="@drawable/simbolo_abertura" />
+</layer-list>

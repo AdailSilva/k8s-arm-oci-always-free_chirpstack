@@ -1,0 +1,39 @@
+# MeshCentral — suporte remoto self-hosted
+# Padrão de nome: <projeto>-<sistema>  ·  AppProject 02-chirpstack  ·  ver gitops/PADRAO-ARGOCD.md
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chirpstack-meshcentral
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+    adailsilva.com.br/sistema: meshcentral
+    adailsilva.com.br/componente: meshcentral
+    adailsilva.com.br/implantacao: argocd
+  annotations:
+    link.argocd.argoproj.io/external-link: https://mesh-chirpstack.adailsilva.com.br
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: 02-chirpstack
+  info:
+    - name: Pasta
+      value: 08.chirpstack_meshcentral/kubernetes
+    - name: Implantação
+      value: "Pipeline aplica a base (Namespace, PV/PVC, Secret, Service, Ingress); o ArgoCD aplica ConfigMap + Deployment (automático, selfHeal). Versão: newTag do kustomization.yaml"
+  source:
+    repoURL: https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+    targetRevision: master
+    path: 08.chirpstack_meshcentral/kubernetes
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chirpstack-meshcentral
+  syncPolicy:
+    automated: { prune: false, selfHeal: true }
+    syncOptions:
+      - ApplyOutOfSyncOnly=true
+      # O namespace chirpstack-meshcentral e criado pelo pipeline (01.create__Namespace.yaml).
+      # CreateNamespace cobre o caso do app-of-apps ser aplicado ANTES do primeiro deploy.
+      - CreateNamespace=true
+  revisionHistoryLimit: 20

@@ -1,0 +1,39 @@
+name: chirpstack_manager
+description: "ChirpStack Manager (mobile): administração e monitoramento da rede LoRaWAN ChirpStack."
+# Pacote privado: nunca publicado no pub.dev.
+publish_to: 'none'
+
+# build-name (X.Y) e build-number são definidos pelo pipeline (.github/workflows/mobile.yml):
+#   --build-name=X.Y --build-number=<minutos desde 01/01/2025> --dart-define=AMBIENTE=production
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # HTTP da API do Manager (REST).
+  http: ^1.2.2
+  # Sessão (token, refresh e usuário) e preferências locais cifradas (Keystore do Android).
+  flutter_secure_storage: ^9.2.4
+  # Símbolo do ChirpStack Manager (o mesmo SVG do login web, brand/chirpstack-manager-simbolo.svg).
+  flutter_svg: ^2.0.10
+  # Abrir no navegador: Termos de Uso e o painel web.
+  url_launcher: ^6.3.1
+  # Versão instalada (X.Y do pipeline), exibida em Conta.
+  package_info_plus: ^8.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/brand/

@@ -1,0 +1,118 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Deployment do MeshCentral (1 réplica — banco NeDB em arquivo no volume do FSS).
+#
+# Imagem oficial multi-arch (inclui arm64), com a versão fixada no
+# kustomization.yaml (newTag) — o ArgoCD aplica este arquivo a partir de lá.
+#
+# O initContainer grava o config.json no volume só na PRIMEIRA subida: copia o
+# ConfigMap trocando "__SESSION_KEY__" pelo SESSION_KEY do Secret. Nas seguintes,
+# mantém o arquivo do volume (o MeshCentral o atualiza sozinho) e só alinha o
+# endereço público ("cert" e "certUrl") com o do ConfigMap. A anotação
+# meshcentral/endereco reinicia o pod quando o endereço muda.
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chirpstack-meshcentral-deployment
+  namespace: chirpstack-meshcentral
+  labels:
+    app: chirpstack-meshcentral-deployment
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate          # um só processo por vez sobre o NeDB do volume
+  selector:
+    matchLabels:
+      app: chirpstack-meshcentral-deployment
+  template:
+    metadata:
+      labels:
+        app: chirpstack-meshcentral-deployment
+      annotations:
+        meshcentral/endereco: mesh-chirpstack.adailsilva.com.br
+    spec:
+      initContainers:
+        - name: semear-config
+          image: busybox:1.36
+          env:
+            - name: SESSION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chirpstack-meshcentral-secret
+                  key: SESSION_KEY
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              if [ -f /data/config.json ]; then
+                echo "config.json ja existe no volume -- mantendo; so alinhando o endereco (cert/certUrl)."
+                CERT=$(grep '"cert":' /semente/config.json | head -1)
+                URL=$(grep '"certUrl":' /semente/config.json | head -1)
+                sed -i "s#^.*\"cert\":.*\$#${CERT}#; s#^.*\"certUrl\":.*\$#${URL}#" /data/config.json
+                grep -E '"cert"|"certUrl"' /data/config.json
+              else
+                echo "Primeira subida: gravando config.json a partir do ConfigMap."
+                sed "s/__SESSION_KEY__/${SESSION_KEY}/" /semente/config.json > /data/config.json
+              fi
+          volumeMounts:
+            - name: dados
+              mountPath: /data
+              subPath: meshcentral-data
+            - name: semente
+              mountPath: /semente
+      containers:
+        - name: chirpstack-meshcentral
+          image: ghcr.io/ylianst/meshcentral
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 443      # HTTP (TLSOffload): o Ingress termina o TLS
+          env:
+            - name: TZ
+              value: "America/Fortaleza"
+          volumeMounts:
+            - name: dados
+              mountPath: /opt/meshcentral/meshcentral-data
+              subPath: meshcentral-data
+            - name: dados
+              mountPath: /opt/meshcentral/meshcentral-files
+              subPath: meshcentral-files
+            - name: dados
+              mountPath: /opt/meshcentral/meshcentral-backups
+              subPath: meshcentral-backups
+          startupProbe:
+            httpGet:
+              path: /
+              port: 443
+              scheme: HTTP
+            periodSeconds: 10
+            failureThreshold: 30     # até 5 min na primeira subida (gera certificados)
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 443
+              scheme: HTTP
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 443
+              scheme: HTTP
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "768Mi"
+      volumes:
+        - name: dados
+          persistentVolumeClaim:
+            claimName: oci-fss-pvc-chirpstack-meshcentral
+        - name: semente
+          configMap:
+            name: chirpstack-meshcentral-config

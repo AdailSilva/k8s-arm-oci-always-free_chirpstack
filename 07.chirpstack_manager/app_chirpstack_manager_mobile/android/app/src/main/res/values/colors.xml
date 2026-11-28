@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Azul-noite da tela de login e da abertura (brand/BRAND.md). -->
+    <color name="manager_abertura">#0B1A3A</color>
+</resources>

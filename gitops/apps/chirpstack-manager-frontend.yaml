@@ -1,0 +1,40 @@
+# Manager — frontend
+# Padrão de nome: <projeto>-<sistema>-<componente>  ·  AppProject 02-chirpstack  ·  ver gitops/PADRAO-ARGOCD.md
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chirpstack-manager-frontend
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+    adailsilva.com.br/sistema: manager
+    adailsilva.com.br/componente: frontend
+    adailsilva.com.br/implantacao: argocd
+  annotations:
+    link.argocd.argoproj.io/external-link: https://app-chirpstack-manager.adailsilva.com.br
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: 02-chirpstack
+  info:
+    - name: Pasta
+      value: 07.chirpstack_manager/app_chirpstack_manager_frontend/kubernetes
+    - name: Implantação
+      value: "Pipeline publica a imagem e grava o newTag; o ArgoCD aplica (automático, selfHeal)"
+  source:
+    repoURL: https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+    targetRevision: master
+    path: 07.chirpstack_manager/app_chirpstack_manager_frontend/kubernetes
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chirpstack-manager
+  syncPolicy:
+    automated: { prune: false, selfHeal: true }
+    syncOptions:
+      - ApplyOutOfSyncOnly=true
+      # O namespace chirpstack-manager e criado pelo pipeline (01.create__Namespace.yaml).
+      # CreateNamespace cobre o caso do app-of-apps ser aplicado ANTES do primeiro
+      # deploy: sem ele a sincronizacao falha ate o pipeline rodar.
+      - CreateNamespace=true
+  revisionHistoryLimit: 20

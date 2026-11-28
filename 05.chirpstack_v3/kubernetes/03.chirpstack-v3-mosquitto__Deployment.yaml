@@ -1,0 +1,68 @@
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chirpstack-v3-mosquitto-deployment
+  namespace: chirpstack-v3
+  labels:
+    app: chirpstack-v3-mosquitto-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chirpstack-v3-mosquitto-deployment
+  template:
+    metadata:
+      labels:
+        app: chirpstack-v3-mosquitto-deployment
+    spec:
+      initContainers:
+        # O Mosquitto exige o passwd com dono mosquitto (uid 1883) e modo 0600; o volume de
+        # Secret é somente leitura, então o arquivo é copiado para um emptyDir.
+        - name: prepare-mosquitto-auth
+          image: alpine:3.20
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              cp /mnt-auth/passwd /work/auth/passwd
+              chmod 0600 /work/auth/passwd
+              chown 1883:1883 /work/auth/passwd
+          volumeMounts:
+            - name: mosquitto-auth-secret
+              mountPath: /mnt-auth
+              readOnly: true
+            - name: mosquitto-auth-vol
+              mountPath: /work/auth
+      containers:
+      - name: chirpstack-v3-mosquitto-deployment
+        image: eclipse-mosquitto:2.0.22
+        resources:
+          requests:
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 1883
+        volumeMounts:
+            - name: chirpstack-v3-mosquitto-volume
+              mountPath: /mosquitto/config/mosquitto.conf
+              subPath: mosquitto.conf
+            - name: mosquitto-auth-vol
+              mountPath: /mosquitto/auth
+              readOnly: true
+        imagePullPolicy: Always
+      volumes:
+        - name: chirpstack-v3-mosquitto-volume
+          configMap:
+            name: chirpstack-v3-mosquitto-config-map
+        - name: mosquitto-auth-secret
+          secret:
+            secretName: chirpstack-v3-mosquitto-auth
+        - name: mosquitto-auth-vol
+          emptyDir: {}
+      restartPolicy: "Always" # Unsupported value: "unless-stopped": supported values: "Always", "OnFailure", "Never".
+status: {}

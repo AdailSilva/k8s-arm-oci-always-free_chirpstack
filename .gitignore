@@ -1,0 +1,25 @@
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+variables.auto.tfvars
+
+# ── IDEs (configuração local de cada máquina; nunca versionar) ────────────────
+.classpath
+.project
+.factorypath
+.settings/
+.vscode/
+.idea/
+*.iml
+
+# ── Material privado do TLS do MQTT (nunca versionar: repositório público) ─────
+# Ficam só na máquina e nos Secrets do cluster (chirpstack-v4-mosquitto-tls,
+# chirpstack-v4-mosquitto-ca, chirpstack-v4-mosquitto-auth). Os .crt são públicos.
+06.chirpstack_v4/mqtt-certs/*.key
+06.chirpstack_v4/mqtt-certs/*.srl
+06.chirpstack_v4/mqtt-certs/*.csr
+06.chirpstack_v4/mqtt-certs/passwd
+*.key
+
+# ── Credenciais e chaves da OCI (00.oci): ficam só na máquina, nunca versionar ─
+00.oci/

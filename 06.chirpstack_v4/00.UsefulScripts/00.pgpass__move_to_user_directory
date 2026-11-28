@@ -1,0 +1,15 @@
+# The Password File
+
+# Create a .pgpass file in the home directory of the account that pg_dump will run as.
+
+# The format is:
+# hostname:port:database:username:password
+# Then, set the file's mode to 0600. Otherwise, it will be ignored.
+# chmod 0600 ~/.pgpass
+# See the Postgresql documentation libpq-pgpass for more details.
+# https://www.postgresql.org/docs/current/libpq-pgpass.html
+
+# Acesso pelo port-forward (03/04 deste diretorio; porta do 07_port_forward_cluster.txt).
+localhost:5442:postgres:postgres:postgres
+localhost:5442:chirpstack:chirpstack:chirpstack
+

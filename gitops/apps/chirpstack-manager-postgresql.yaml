@@ -1,0 +1,47 @@
+# Manager — PostgreSQL
+# Padrão de nome: <projeto>-<sistema>-<componente>  ·  AppProject 02-chirpstack  ·  ver gitops/PADRAO-ARGOCD.md
+# Modo DADOS: o pipeline continua aplicando estes manifestos (CHECKPOINT, espera do Postgres,
+# Job de migração, rollout do broker). A Application existe para o sistema aparecer completo
+# no ArgoCD (estado, saúde, diff). Sync bloqueado pela janela 'deny' do AppProject.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chirpstack-manager-postgresql
+  namespace: argocd
+  labels:
+    adailsilva.com.br/repositorio: k8s-arm-oci-always-free_chirpstack
+    adailsilva.com.br/projeto: "chirpstack"
+    adailsilva.com.br/sistema: manager
+    adailsilva.com.br/componente: postgresql
+    adailsilva.com.br/implantacao: pipeline
+spec:
+  project: 02-chirpstack
+  info:
+    - name: Pasta
+      value: 07.chirpstack_manager/api_chirpstack_manager_backend/kubernetes
+    - name: Implantação
+      value: "Pipeline aplica (com CHECKPOINT/espera/migração); o ArgoCD só monitora — sync bloqueado por janela"
+  source:
+    repoURL: https://github.com/AdailSilva/k8s-arm-oci-always-free_chirpstack.git
+    targetRevision: master
+    path: 07.chirpstack_manager/api_chirpstack_manager_backend/kubernetes
+    directory:
+      recurse: false
+      include: '{04.api-chirpstack-manager-postgresql__ConfigMap.yaml,05.api-chirpstack-manager-postgresql__Deployment.yaml,06.api-chirpstack-manager-postgresql__Service.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: chirpstack-manager
+  syncPolicy:
+    syncOptions:
+      - ApplyOutOfSyncOnly=true
+      - CreateNamespace=true
+      # O pipeline usa kubectl apply --server-side: o ArgoCD segue o mesmo modo.
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    # kubectl rollout restart (pipeline/scripts) grava esta anotacao no template.
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations/kubectl.kubernetes.io~1restartedAt
+  revisionHistoryLimit: 20

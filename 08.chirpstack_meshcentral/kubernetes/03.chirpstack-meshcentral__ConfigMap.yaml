@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# config.json do MeshCentral, montado como "semente" e copiado para o volume de
+# dados na primeira inicialização (ver initContainer no Deployment).
+#
+# Pontos importantes para rodar atrás do NGINX Ingress + cert-manager:
+#   - "TLSOffload": true  → o Ingress termina o TLS; o MeshCentral serve HTTP.
+#   - "trustedProxy": true → confia nos cabeçalhos X-Forwarded-* do Ingress.
+#   - "certUrl" → URL pública; o MeshCentral usa o certificado público para
+#     calcular o hash do agente (evita falha de conexão do agente atrás de proxy).
+#   - "WANonly": true → exposto pela internet (sem varredura de LAN).
+#   - "newAccounts": false → sem auto-registro; o admin é criado via CLI
+#     (00.UsefulScripts/04.criar_administrador_chirpstack-meshcentral_script.sh).
+#
+# O sessionKey NÃO fica no Git: "__SESSION_KEY__" é trocado pelo initContainer do
+# Deployment pelo valor do Secret chirpstack-meshcentral-secret (chave SESSION_KEY),
+# gerado por 00.UsefulScripts/03.gerar_segredos_chirpstack-meshcentral_script.sh.
+# Alterar este ConfigMap depois da primeira subida não muda o config.json já
+# gravado no volume (o MeshCentral mantém o próprio arquivo).
+# ═══════════════════════════════════════════════════════════════════════════════
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chirpstack-meshcentral-config
+  namespace: chirpstack-meshcentral
+data:
+  config.json: |
+    {
+      "$schema": "https://raw.githubusercontent.com/Ylianst/MeshCentral/master/meshcentral-config-schema.json",
+      "settings": {
+        "cert": "mesh-chirpstack.adailsilva.com.br",
+        "WANonly": true,
+        "sessionKey": "__SESSION_KEY__",
+        "port": 443,
+        "aliasPort": 443,
+        "redirPort": 80,
+        "TLSOffload": true,
+        "trustedProxy": true,
+        "certUrl": "https://mesh-chirpstack.adailsilva.com.br:443",
+        "AgentPong": 300,
+        "selfUpdate": false,
+        "WebRTC": true,
+        "AutoBackup": {
+          "backupIntervalHours": 24,
+          "keepLastDaysBackup": 10,
+          "backupPath": "/opt/meshcentral/meshcentral-backups"
+        }
+      },
+      "domains": {
+        "": {
+          "title": "ChirpStack",
+          "title2": "Suporte Remoto",
+          "newAccounts": false,
+          "minify": true,
+          "agentCustomization": {
+            "displayName": "ChirpStack Suporte",
+            "description": "Assistencia remota ChirpStack",
+            "companyName": "ChirpStack",
+            "serviceName": "ChirpStackSupport"
+          }
+        }
+      }
+    }
